@@ -105,12 +105,12 @@ class Visualizer:
             coords = tracks[0, query_frame].round().long()
             segm_mask = segm_mask[0, query_frame][coords[:, 1], coords[:, 0]].long()
 
-        video = F.pad(
-            video,
-            (self.pad_value, self.pad_value, self.pad_value, self.pad_value),
-            "constant",
-            255,
-        )
+        # video = F.pad(
+        #     video,
+        #     (self.pad_value, self.pad_value, self.pad_value, self.pad_value),
+        #     "constant",
+        #     255,
+        # )
         color_alpha = int(opacity * 255)
         tracks = tracks + self.pad_value
 
@@ -119,16 +119,19 @@ class Visualizer:
             video = transform(video)
             video = video.repeat(1, 1, 3, 1, 1)
 
-        res_video = self.draw_tracks_on_video(
-            video=video,
-            tracks=tracks,
-            visibility=visibility,
-            segm_mask=segm_mask,
-            gt_tracks=gt_tracks,
-            query_frame=query_frame,
-            compensate_for_camera_motion=compensate_for_camera_motion,
-            color_alpha=color_alpha,
-        )
+        res_video = []
+        for i in range(0, video.shape[1], 100):
+            res_video.append(self.draw_tracks_on_video(
+                video=video[:, i:i + 100],
+                tracks=tracks[:, i:i + 100],
+                visibility=visibility[:, i:i + 100] if visibility is not None else None,
+                segm_mask=segm_mask[:, i:i + 100] if segm_mask is not None else None,
+                gt_tracks=gt_tracks[:, i:i + 100] if gt_tracks is not None else None,
+                query_frame=query_frame,
+                compensate_for_camera_motion=compensate_for_camera_motion,
+                color_alpha=color_alpha,
+            ))
+        res_video = torch.cat(res_video, dim=1)
         if save_video:
             self.save_video(res_video, filename=filename, writer=writer, step=step)
         return res_video
@@ -176,8 +179,19 @@ class Visualizer:
 
         assert D == 2
         assert C == 3
-        video = video[0].permute(0, 2, 3, 1).byte().detach().cpu().numpy()  # S, H, W, C
-        tracks = tracks[0].long().detach().cpu().numpy()  # S, N, 2
+        video = video[0].permute(0, 2, 3, 1).detach().cpu().numpy()  # S, H, W, C
+        # pad
+        video = np.concatenate([
+            np.ones((T, H, self.pad_value, 3), dtype=np.uint8) * 255,
+            video,
+            np.ones((T, H, self.pad_value, 3), dtype=np.uint8) * 255,
+        ], axis=2)
+        video = np.concatenate([
+            np.ones((T, self.pad_value, W + 2 * self.pad_value, 3), dtype=np.uint8) * 255,
+            video,
+            np.ones((T, self.pad_value, W + 2 * self.pad_value, 3), dtype=np.uint8) * 255,
+        ], axis=1)
+        tracks = tracks[0].detach().cpu().numpy().astype(int)  # S, N, 2
         if gt_tracks is not None:
             gt_tracks = gt_tracks[0].detach().cpu().numpy()
 
